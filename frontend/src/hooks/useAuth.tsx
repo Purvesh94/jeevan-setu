@@ -30,9 +30,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .from('profiles')
         .select('*')
         .eq('auth_user_id', userId)
-        .single();
+        .maybeSingle();
       
-      if (error && error.code !== 'PGRST116') {
+      if (error) {
         console.error('Error fetching profile:', error);
       }
       setProfile(data || null);
@@ -80,8 +80,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
     if (error) throw error;
     
-    // Create profile
-    if (data.user) {
+    // Create profile if session is immediately available
+    if (data.session && data.user) {
       const { error: profileError } = await supabase.from('profiles').insert({
         auth_user_id: data.user.id,
         full_name: fullName,
@@ -116,12 +116,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const setRole = async (role: UserRole) => {
     if (!user) throw new Error('Not authenticated');
     
-    const { error } = await supabase
+    // Check if profile exists
+    const { data: existingProfile } = await supabase
       .from('profiles')
-      .update({ role })
-      .eq('auth_user_id', user.id);
-    
-    if (error) throw error;
+      .select('id')
+      .eq('auth_user_id', user.id)
+      .maybeSingle();
+
+    if (existingProfile) {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ role })
+        .eq('auth_user_id', user.id);
+      
+      if (error) throw error;
+    } else {
+      // Insert profile with auth_user_id and metadata
+      const fullName = (user.user_metadata?.full_name as string) || null;
+      const phone = (user.user_metadata?.phone as string) || null;
+
+      const { error } = await supabase
+        .from('profiles')
+        .insert({
+          auth_user_id: user.id,
+          full_name: fullName,
+          phone: phone,
+          email: user.email || null,
+          role,
+        });
+
+      if (error) throw error;
+    }
     
     await fetchProfile(user.id);
   };

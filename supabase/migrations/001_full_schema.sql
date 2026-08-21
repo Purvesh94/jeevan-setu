@@ -1,17 +1,30 @@
 -- ============================================================
--- JeevanSetu Database Schema — Full Migration
--- Run in Supabase SQL Editor
+-- JEEVAN SETU — FULL DATABASE MIGRATION SCRIPT
+-- Consolidated Schema, Triggers, Storage, and RLS Policies
+-- Safe to execute in Supabase SQL Editor on a fresh project
 -- ============================================================
 
--- Enable UUID extension
+-- Enable required extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- ============================================================
--- 1. PROFILES
+-- 1. TRIGGER FUNCTION: update_updated_at
+-- ============================================================
+CREATE OR REPLACE FUNCTION update_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ============================================================
+-- 2. TABLE: PROFILES
 -- ============================================================
 CREATE TABLE IF NOT EXISTS profiles (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    auth_user_id UUID UNIQUE NOT NULL,
+    auth_user_id UUID UNIQUE NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     full_name TEXT,
     phone TEXT,
     email TEXT,
@@ -24,11 +37,16 @@ CREATE TABLE IF NOT EXISTS profiles (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_profiles_auth_user ON profiles(auth_user_id);
-CREATE INDEX idx_profiles_role ON profiles(role);
+CREATE INDEX IF NOT EXISTS idx_profiles_auth_user ON profiles(auth_user_id);
+CREATE INDEX IF NOT EXISTS idx_profiles_role ON profiles(role);
+
+DROP TRIGGER IF EXISTS update_profiles_updated_at ON profiles;
+CREATE TRIGGER update_profiles_updated_at
+    BEFORE UPDATE ON profiles
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 -- ============================================================
--- 2. ORGANIZATIONS
+-- 3. TABLE: ORGANIZATIONS
 -- ============================================================
 CREATE TABLE IF NOT EXISTS organizations (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -49,8 +67,15 @@ CREATE TABLE IF NOT EXISTS organizations (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE INDEX IF NOT EXISTS idx_organizations_status ON organizations(verification_status);
+
+DROP TRIGGER IF EXISTS update_organizations_updated_at ON organizations;
+CREATE TRIGGER update_organizations_updated_at
+    BEFORE UPDATE ON organizations
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
 -- ============================================================
--- 3. MEDICAL AFFILIATES
+-- 4. TABLE: MEDICAL AFFILIATES
 -- ============================================================
 CREATE TABLE IF NOT EXISTS medical_affiliates (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -61,10 +86,11 @@ CREATE TABLE IF NOT EXISTS medical_affiliates (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_affiliates_profile ON medical_affiliates(profile_id);
+CREATE INDEX IF NOT EXISTS idx_affiliates_profile ON medical_affiliates(profile_id);
+CREATE INDEX IF NOT EXISTS idx_affiliates_org ON medical_affiliates(organization_id);
 
 -- ============================================================
--- 4. HOSPITALS
+-- 5. TABLE: HOSPITALS
 -- ============================================================
 CREATE TABLE IF NOT EXISTS hospitals (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -87,10 +113,16 @@ CREATE TABLE IF NOT EXISTS hospitals (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_hospitals_location ON hospitals(latitude, longitude);
+CREATE INDEX IF NOT EXISTS idx_hospitals_location ON hospitals(latitude, longitude);
+CREATE INDEX IF NOT EXISTS idx_hospitals_status ON hospitals(status);
+
+DROP TRIGGER IF EXISTS update_hospitals_updated_at ON hospitals;
+CREATE TRIGGER update_hospitals_updated_at
+    BEFORE UPDATE ON hospitals
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 -- ============================================================
--- 5. EMERGENCY INCIDENTS
+-- 6. TABLE: EMERGENCY INCIDENTS
 -- ============================================================
 CREATE TABLE IF NOT EXISTS emergency_incidents (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -116,13 +148,19 @@ CREATE TABLE IF NOT EXISTS emergency_incidents (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_emergencies_user ON emergency_incidents(user_id);
-CREATE INDEX idx_emergencies_status ON emergency_incidents(status);
-CREATE INDEX idx_emergencies_priority ON emergency_incidents(priority);
-CREATE INDEX idx_emergencies_code ON emergency_incidents(incident_code);
+CREATE INDEX IF NOT EXISTS idx_emergencies_user ON emergency_incidents(user_id);
+CREATE INDEX IF NOT EXISTS idx_emergencies_status ON emergency_incidents(status);
+CREATE INDEX IF NOT EXISTS idx_emergencies_priority ON emergency_incidents(priority);
+CREATE INDEX IF NOT EXISTS idx_emergencies_code ON emergency_incidents(incident_code);
+CREATE INDEX IF NOT EXISTS idx_emergencies_created ON emergency_incidents(created_at DESC);
+
+DROP TRIGGER IF EXISTS update_emergencies_updated_at ON emergency_incidents;
+CREATE TRIGGER update_emergencies_updated_at
+    BEFORE UPDATE ON emergency_incidents
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 -- ============================================================
--- 6. EMERGENCY MEDIA
+-- 7. TABLE: EMERGENCY MEDIA
 -- ============================================================
 CREATE TABLE IF NOT EXISTS emergency_media (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -134,10 +172,10 @@ CREATE TABLE IF NOT EXISTS emergency_media (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_media_incident ON emergency_media(incident_id);
+CREATE INDEX IF NOT EXISTS idx_media_incident ON emergency_media(incident_id);
 
 -- ============================================================
--- 7. EMERGENCY STATUS HISTORY
+-- 8. TABLE: EMERGENCY STATUS HISTORY
 -- ============================================================
 CREATE TABLE IF NOT EXISTS emergency_status_history (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -149,10 +187,10 @@ CREATE TABLE IF NOT EXISTS emergency_status_history (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_status_history_incident ON emergency_status_history(incident_id);
+CREATE INDEX IF NOT EXISTS idx_status_history_incident ON emergency_status_history(incident_id);
 
 -- ============================================================
--- 8. CREDENTIALS
+-- 9. TABLE: CREDENTIALS
 -- ============================================================
 CREATE TABLE IF NOT EXISTS credentials (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -168,11 +206,12 @@ CREATE TABLE IF NOT EXISTS credentials (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_credentials_user ON credentials(user_id);
-CREATE INDEX idx_credentials_type ON credentials(credential_type);
+CREATE INDEX IF NOT EXISTS idx_credentials_user ON credentials(user_id);
+CREATE INDEX IF NOT EXISTS idx_credentials_type ON credentials(credential_type);
+CREATE INDEX IF NOT EXISTS idx_credentials_status ON credentials(status);
 
 -- ============================================================
--- 9. CREDENTIAL ISSUERS
+-- 10. TABLE: CREDENTIAL ISSUERS
 -- ============================================================
 CREATE TABLE IF NOT EXISTS credential_issuers (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -185,7 +224,7 @@ CREATE TABLE IF NOT EXISTS credential_issuers (
 );
 
 -- ============================================================
--- 10. CONSENTS
+-- 11. TABLE: CONSENTS
 -- ============================================================
 CREATE TABLE IF NOT EXISTS consents (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -202,13 +241,13 @@ CREATE TABLE IF NOT EXISTS consents (
     revoked_at TIMESTAMPTZ
 );
 
-CREATE INDEX idx_consents_user ON consents(user_id);
-CREATE INDEX idx_consents_requester ON consents(requester_id);
-CREATE INDEX idx_consents_incident ON consents(incident_id);
-CREATE INDEX idx_consents_status ON consents(status);
+CREATE INDEX IF NOT EXISTS idx_consents_user ON consents(user_id);
+CREATE INDEX IF NOT EXISTS idx_consents_requester ON consents(requester_id);
+CREATE INDEX IF NOT EXISTS idx_consents_incident ON consents(incident_id);
+CREATE INDEX IF NOT EXISTS idx_consents_status ON consents(status);
 
 -- ============================================================
--- 11. AUDIT LOGS
+-- 12. TABLE: AUDIT LOGS
 -- ============================================================
 CREATE TABLE IF NOT EXISTS audit_logs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -223,13 +262,13 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_audit_actor ON audit_logs(actor_id);
-CREATE INDEX idx_audit_incident ON audit_logs(incident_id);
-CREATE INDEX idx_audit_action ON audit_logs(action);
-CREATE INDEX idx_audit_created ON audit_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_logs(actor_id);
+CREATE INDEX IF NOT EXISTS idx_audit_incident ON audit_logs(incident_id);
+CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_logs(action);
+CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at DESC);
 
 -- ============================================================
--- 12. NOTIFICATIONS
+-- 13. TABLE: NOTIFICATIONS
 -- ============================================================
 CREATE TABLE IF NOT EXISTS notifications (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -243,11 +282,11 @@ CREATE TABLE IF NOT EXISTS notifications (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_notifications_user ON notifications(user_id);
-CREATE INDEX idx_notifications_read ON notifications(user_id, read);
+CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_read ON notifications(user_id, read);
 
 -- ============================================================
--- 13. HOSPITAL RECOMMENDATIONS
+-- 14. TABLE: HOSPITAL RECOMMENDATIONS
 -- ============================================================
 CREATE TABLE IF NOT EXISTS hospital_recommendations (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -259,13 +298,33 @@ CREATE TABLE IF NOT EXISTS hospital_recommendations (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_recommendations_incident ON hospital_recommendations(incident_id);
+CREATE INDEX IF NOT EXISTS idx_recommendations_incident ON hospital_recommendations(incident_id);
 
 -- ============================================================
--- ROW LEVEL SECURITY
+-- 15. STORAGE BUCKET: emergency-media
+-- ============================================================
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('emergency-media', 'emergency-media', true)
+ON CONFLICT (id) DO UPDATE SET public = true;
+
+-- Storage Policies
+DROP POLICY IF EXISTS "Authenticated users can upload emergency media" ON storage.objects;
+CREATE POLICY "Authenticated users can upload emergency media"
+ON storage.objects FOR INSERT
+TO authenticated
+WITH CHECK (bucket_id = 'emergency-media');
+
+DROP POLICY IF EXISTS "Anyone can view emergency media" ON storage.objects;
+CREATE POLICY "Anyone can view emergency media"
+ON storage.objects FOR SELECT
+TO public
+USING (bucket_id = 'emergency-media');
+
+-- ============================================================
+-- 16. ROW LEVEL SECURITY (RLS) POLICIES
 -- ============================================================
 
--- Enable RLS on all tables
+-- Enable RLS on all 13 application tables
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE organizations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE medical_affiliates ENABLE ROW LEVEL SECURITY;
@@ -280,81 +339,257 @@ ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE hospital_recommendations ENABLE ROW LEVEL SECURITY;
 
--- PROFILES: Users can read/update own profile
-CREATE POLICY "Users can view own profile" ON profiles FOR SELECT USING (auth.uid() = auth_user_id);
-CREATE POLICY "Users can update own profile" ON profiles FOR UPDATE USING (auth.uid() = auth_user_id);
-CREATE POLICY "Service role full access profiles" ON profiles FOR ALL USING (auth.role() = 'service_role');
+-- ------------------------------------------------------------
+-- PROFILES POLICIES
+-- ------------------------------------------------------------
+DROP POLICY IF EXISTS "Users can view own profile" ON profiles;
+CREATE POLICY "Users can view own profile" 
+ON profiles FOR SELECT 
+USING (auth.uid() = auth_user_id);
 
--- HOSPITALS: Public read
-CREATE POLICY "Anyone can view hospitals" ON hospitals FOR SELECT USING (true);
-CREATE POLICY "Service role manage hospitals" ON hospitals FOR ALL USING (auth.role() = 'service_role');
+DROP POLICY IF EXISTS "Users can insert own profile" ON profiles;
+CREATE POLICY "Users can insert own profile" 
+ON profiles FOR INSERT 
+WITH CHECK (auth.uid() = auth_user_id);
 
--- EMERGENCY INCIDENTS: Users see own, affiliates/admin see all
-CREATE POLICY "Users view own emergencies" ON emergency_incidents FOR SELECT 
-    USING (user_id IN (SELECT id FROM profiles WHERE auth_user_id = auth.uid()));
-CREATE POLICY "Service role full access emergencies" ON emergency_incidents FOR ALL USING (auth.role() = 'service_role');
+DROP POLICY IF EXISTS "Users can update own profile" ON profiles;
+CREATE POLICY "Users can update own profile" 
+ON profiles FOR UPDATE 
+USING (auth.uid() = auth_user_id);
 
--- EMERGENCY MEDIA: Linked to incident access
-CREATE POLICY "Users view own media" ON emergency_media FOR SELECT 
-    USING (incident_id IN (SELECT id FROM emergency_incidents WHERE user_id IN (SELECT id FROM profiles WHERE auth_user_id = auth.uid())));
-CREATE POLICY "Service role full access media" ON emergency_media FOR ALL USING (auth.role() = 'service_role');
+DROP POLICY IF EXISTS "Service role full access profiles" ON profiles;
+CREATE POLICY "Service role full access profiles" 
+ON profiles FOR ALL 
+USING (auth.jwt() ->> 'role' = 'service_role' OR auth.role() = 'service_role');
 
--- CREDENTIALS: Users see own
-CREATE POLICY "Users view own credentials" ON credentials FOR SELECT 
-    USING (user_id IN (SELECT id FROM profiles WHERE auth_user_id = auth.uid()));
-CREATE POLICY "Service role full access credentials" ON credentials FOR ALL USING (auth.role() = 'service_role');
+-- ------------------------------------------------------------
+-- HOSPITALS POLICIES
+-- ------------------------------------------------------------
+DROP POLICY IF EXISTS "Anyone can view hospitals" ON hospitals;
+CREATE POLICY "Anyone can view hospitals" 
+ON hospitals FOR SELECT 
+USING (true);
 
--- CONSENTS: Users see own, requesters see their requests
-CREATE POLICY "Users view own consents" ON consents FOR SELECT 
-    USING (user_id IN (SELECT id FROM profiles WHERE auth_user_id = auth.uid()) 
-           OR requester_id IN (SELECT id FROM profiles WHERE auth_user_id = auth.uid()));
-CREATE POLICY "Service role full access consents" ON consents FOR ALL USING (auth.role() = 'service_role');
+DROP POLICY IF EXISTS "Service role manage hospitals" ON hospitals;
+CREATE POLICY "Service role manage hospitals" 
+ON hospitals FOR ALL 
+USING (auth.jwt() ->> 'role' = 'service_role' OR auth.role() = 'service_role');
 
--- NOTIFICATIONS: Users see own
-CREATE POLICY "Users view own notifications" ON notifications FOR SELECT 
-    USING (user_id IN (SELECT id FROM profiles WHERE auth_user_id = auth.uid()));
-CREATE POLICY "Service role full access notifications" ON notifications FOR ALL USING (auth.role() = 'service_role');
+-- ------------------------------------------------------------
+-- EMERGENCY INCIDENTS POLICIES
+-- ------------------------------------------------------------
+DROP POLICY IF EXISTS "Users view own emergencies" ON emergency_incidents;
+CREATE POLICY "Users view own emergencies" 
+ON emergency_incidents FOR SELECT 
+USING (user_id IN (SELECT id FROM profiles WHERE auth_user_id = auth.uid()));
 
--- AUDIT LOGS: Read only for authorized roles
-CREATE POLICY "Service role full access audit" ON audit_logs FOR ALL USING (auth.role() = 'service_role');
+DROP POLICY IF EXISTS "Users insert own emergencies" ON emergency_incidents;
+CREATE POLICY "Users insert own emergencies" 
+ON emergency_incidents FOR INSERT 
+WITH CHECK (user_id IN (SELECT id FROM profiles WHERE auth_user_id = auth.uid()));
 
--- ORGANIZATIONS: Service role access
-CREATE POLICY "Service role full access orgs" ON organizations FOR ALL USING (auth.role() = 'service_role');
-CREATE POLICY "View own org" ON organizations FOR SELECT USING (
-    id IN (SELECT organization_id FROM medical_affiliates WHERE profile_id IN (SELECT id FROM profiles WHERE auth_user_id = auth.uid()))
+DROP POLICY IF EXISTS "Affiliates view emergencies" ON emergency_incidents;
+CREATE POLICY "Affiliates view emergencies" 
+ON emergency_incidents FOR SELECT 
+USING (EXISTS (SELECT 1 FROM profiles WHERE auth_user_id = auth.uid() AND role IN ('MEDICAL_AFFILIATE', 'ADMIN')));
+
+DROP POLICY IF EXISTS "Service role full access emergencies" ON emergency_incidents;
+CREATE POLICY "Service role full access emergencies" 
+ON emergency_incidents FOR ALL 
+USING (auth.jwt() ->> 'role' = 'service_role' OR auth.role() = 'service_role');
+
+-- ------------------------------------------------------------
+-- EMERGENCY MEDIA POLICIES
+-- ------------------------------------------------------------
+DROP POLICY IF EXISTS "Users view own media" ON emergency_media;
+CREATE POLICY "Users view own media" 
+ON emergency_media FOR SELECT 
+USING (
+    incident_id IN (
+        SELECT id FROM emergency_incidents 
+        WHERE user_id IN (SELECT id FROM profiles WHERE auth_user_id = auth.uid())
+    )
+    OR EXISTS (SELECT 1 FROM profiles WHERE auth_user_id = auth.uid() AND role IN ('MEDICAL_AFFILIATE', 'ADMIN'))
 );
 
--- MEDICAL AFFILIATES: Service role access
-CREATE POLICY "Service role full access affiliates" ON medical_affiliates FOR ALL USING (auth.role() = 'service_role');
-
--- STATUS HISTORY: Read via incident
-CREATE POLICY "View status history" ON emergency_status_history FOR SELECT USING (
-    incident_id IN (SELECT id FROM emergency_incidents WHERE user_id IN (SELECT id FROM profiles WHERE auth_user_id = auth.uid()))
+DROP POLICY IF EXISTS "Users insert own emergency media" ON emergency_media;
+CREATE POLICY "Users insert own emergency media" 
+ON emergency_media FOR INSERT 
+WITH CHECK (
+    incident_id IN (
+        SELECT id FROM emergency_incidents 
+        WHERE user_id IN (SELECT id FROM profiles WHERE auth_user_id = auth.uid())
+    )
 );
-CREATE POLICY "Service role full access status history" ON emergency_status_history FOR ALL USING (auth.role() = 'service_role');
 
--- CREDENTIAL ISSUERS: Public read
-CREATE POLICY "Anyone can view issuers" ON credential_issuers FOR SELECT USING (true);
-CREATE POLICY "Service role manage issuers" ON credential_issuers FOR ALL USING (auth.role() = 'service_role');
+DROP POLICY IF EXISTS "Service role full access media" ON emergency_media;
+CREATE POLICY "Service role full access media" 
+ON emergency_media FOR ALL 
+USING (auth.jwt() ->> 'role' = 'service_role' OR auth.role() = 'service_role');
 
--- HOSPITAL RECOMMENDATIONS: Linked to incident
-CREATE POLICY "View own recommendations" ON hospital_recommendations FOR SELECT USING (
-    incident_id IN (SELECT id FROM emergency_incidents WHERE user_id IN (SELECT id FROM profiles WHERE auth_user_id = auth.uid()))
+-- ------------------------------------------------------------
+-- EMERGENCY STATUS HISTORY POLICIES
+-- ------------------------------------------------------------
+DROP POLICY IF EXISTS "View status history" ON emergency_status_history;
+CREATE POLICY "View status history" 
+ON emergency_status_history FOR SELECT 
+USING (
+    incident_id IN (
+        SELECT id FROM emergency_incidents 
+        WHERE user_id IN (SELECT id FROM profiles WHERE auth_user_id = auth.uid())
+    )
+    OR EXISTS (SELECT 1 FROM profiles WHERE auth_user_id = auth.uid() AND role IN ('MEDICAL_AFFILIATE', 'ADMIN'))
 );
-CREATE POLICY "Service role full access recommendations" ON hospital_recommendations FOR ALL USING (auth.role() = 'service_role');
 
--- ============================================================
--- UPDATED_AT TRIGGER
--- ============================================================
-CREATE OR REPLACE FUNCTION update_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = NOW();
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
+DROP POLICY IF EXISTS "Service role full access status history" ON emergency_status_history;
+CREATE POLICY "Service role full access status history" 
+ON emergency_status_history FOR ALL 
+USING (auth.jwt() ->> 'role' = 'service_role' OR auth.role() = 'service_role');
 
-CREATE TRIGGER update_profiles_updated_at BEFORE UPDATE ON profiles FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-CREATE TRIGGER update_organizations_updated_at BEFORE UPDATE ON organizations FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-CREATE TRIGGER update_hospitals_updated_at BEFORE UPDATE ON hospitals FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-CREATE TRIGGER update_emergencies_updated_at BEFORE UPDATE ON emergency_incidents FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+-- ------------------------------------------------------------
+-- CREDENTIALS POLICIES
+-- ------------------------------------------------------------
+DROP POLICY IF EXISTS "Users view own credentials" ON credentials;
+CREATE POLICY "Users view own credentials" 
+ON credentials FOR SELECT 
+USING (user_id IN (SELECT id FROM profiles WHERE auth_user_id = auth.uid()));
+
+DROP POLICY IF EXISTS "Users manage own credentials" ON credentials;
+CREATE POLICY "Users manage own credentials" 
+ON credentials FOR ALL 
+USING (user_id IN (SELECT id FROM profiles WHERE auth_user_id = auth.uid()));
+
+DROP POLICY IF EXISTS "Service role full access credentials" ON credentials;
+CREATE POLICY "Service role full access credentials" 
+ON credentials FOR ALL 
+USING (auth.jwt() ->> 'role' = 'service_role' OR auth.role() = 'service_role');
+
+-- ------------------------------------------------------------
+-- CREDENTIAL ISSUERS POLICIES
+-- ------------------------------------------------------------
+DROP POLICY IF EXISTS "Anyone can view issuers" ON credential_issuers;
+CREATE POLICY "Anyone can view issuers" 
+ON credential_issuers FOR SELECT 
+USING (true);
+
+DROP POLICY IF EXISTS "Service role manage issuers" ON credential_issuers;
+CREATE POLICY "Service role manage issuers" 
+ON credential_issuers FOR ALL 
+USING (auth.jwt() ->> 'role' = 'service_role' OR auth.role() = 'service_role');
+
+-- ------------------------------------------------------------
+-- CONSENTS POLICIES
+-- ------------------------------------------------------------
+DROP POLICY IF EXISTS "Users view own consents" ON consents;
+CREATE POLICY "Users view own consents" 
+ON consents FOR SELECT 
+USING (
+    user_id IN (SELECT id FROM profiles WHERE auth_user_id = auth.uid()) 
+    OR requester_id IN (SELECT id FROM profiles WHERE auth_user_id = auth.uid())
+);
+
+DROP POLICY IF EXISTS "Affiliates insert consent requests" ON consents;
+CREATE POLICY "Affiliates insert consent requests" 
+ON consents FOR INSERT 
+WITH CHECK (
+    requester_id IN (SELECT id FROM profiles WHERE auth_user_id = auth.uid())
+);
+
+DROP POLICY IF EXISTS "Users update own consent response" ON consents;
+CREATE POLICY "Users update own consent response" 
+ON consents FOR UPDATE 
+USING (
+    user_id IN (SELECT id FROM profiles WHERE auth_user_id = auth.uid())
+);
+
+DROP POLICY IF EXISTS "Service role full access consents" ON consents;
+CREATE POLICY "Service role full access consents" 
+ON consents FOR ALL 
+USING (auth.jwt() ->> 'role' = 'service_role' OR auth.role() = 'service_role');
+
+-- ------------------------------------------------------------
+-- ORGANIZATIONS POLICIES
+-- ------------------------------------------------------------
+DROP POLICY IF EXISTS "View organizations" ON organizations;
+CREATE POLICY "View organizations" 
+ON organizations FOR SELECT 
+USING (
+    id IN (
+        SELECT organization_id FROM medical_affiliates 
+        WHERE profile_id IN (SELECT id FROM profiles WHERE auth_user_id = auth.uid())
+    )
+    OR EXISTS (SELECT 1 FROM profiles WHERE auth_user_id = auth.uid() AND role = 'ADMIN')
+);
+
+DROP POLICY IF EXISTS "Service role full access orgs" ON organizations;
+CREATE POLICY "Service role full access orgs" 
+ON organizations FOR ALL 
+USING (auth.jwt() ->> 'role' = 'service_role' OR auth.role() = 'service_role');
+
+-- ------------------------------------------------------------
+-- MEDICAL AFFILIATES POLICIES
+-- ------------------------------------------------------------
+DROP POLICY IF EXISTS "View affiliate records" ON medical_affiliates;
+CREATE POLICY "View affiliate records" 
+ON medical_affiliates FOR SELECT 
+USING (
+    profile_id IN (SELECT id FROM profiles WHERE auth_user_id = auth.uid())
+    OR EXISTS (SELECT 1 FROM profiles WHERE auth_user_id = auth.uid() AND role = 'ADMIN')
+);
+
+DROP POLICY IF EXISTS "Service role full access affiliates" ON medical_affiliates;
+CREATE POLICY "Service role full access affiliates" 
+ON medical_affiliates FOR ALL 
+USING (auth.jwt() ->> 'role' = 'service_role' OR auth.role() = 'service_role');
+
+-- ------------------------------------------------------------
+-- AUDIT LOGS POLICIES
+-- ------------------------------------------------------------
+DROP POLICY IF EXISTS "Affiliates and admins view audit logs" ON audit_logs;
+CREATE POLICY "Affiliates and admins view audit logs" 
+ON audit_logs FOR SELECT 
+USING (
+    EXISTS (SELECT 1 FROM profiles WHERE auth_user_id = auth.uid() AND role IN ('MEDICAL_AFFILIATE', 'ADMIN'))
+);
+
+DROP POLICY IF EXISTS "Service role full access audit" ON audit_logs;
+CREATE POLICY "Service role full access audit" 
+ON audit_logs FOR ALL 
+USING (auth.jwt() ->> 'role' = 'service_role' OR auth.role() = 'service_role');
+
+-- ------------------------------------------------------------
+-- NOTIFICATIONS POLICIES
+-- ------------------------------------------------------------
+DROP POLICY IF EXISTS "Users view own notifications" ON notifications;
+CREATE POLICY "Users view own notifications" 
+ON notifications FOR SELECT 
+USING (user_id IN (SELECT id FROM profiles WHERE auth_user_id = auth.uid()));
+
+DROP POLICY IF EXISTS "Users update own notifications" ON notifications;
+CREATE POLICY "Users update own notifications" 
+ON notifications FOR UPDATE 
+USING (user_id IN (SELECT id FROM profiles WHERE auth_user_id = auth.uid()));
+
+DROP POLICY IF EXISTS "Service role full access notifications" ON notifications;
+CREATE POLICY "Service role full access notifications" 
+ON notifications FOR ALL 
+USING (auth.jwt() ->> 'role' = 'service_role' OR auth.role() = 'service_role');
+
+-- ------------------------------------------------------------
+-- HOSPITAL RECOMMENDATIONS POLICIES
+-- ------------------------------------------------------------
+DROP POLICY IF EXISTS "View own recommendations" ON hospital_recommendations;
+CREATE POLICY "View own recommendations" 
+ON hospital_recommendations FOR SELECT 
+USING (
+    incident_id IN (
+        SELECT id FROM emergency_incidents 
+        WHERE user_id IN (SELECT id FROM profiles WHERE auth_user_id = auth.uid())
+    )
+    OR EXISTS (SELECT 1 FROM profiles WHERE auth_user_id = auth.uid() AND role IN ('MEDICAL_AFFILIATE', 'ADMIN'))
+);
+
+DROP POLICY IF EXISTS "Service role full access recommendations" ON hospital_recommendations;
+CREATE POLICY "Service role full access recommendations" 
+ON hospital_recommendations FOR ALL 
+USING (auth.jwt() ->> 'role' = 'service_role' OR auth.role() = 'service_role');
